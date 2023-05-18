@@ -78,7 +78,7 @@ add and ed(means edit) require two args: alias and path
 del(means delete) and jp(jump) require one arg: alias
 
 ```powershell
-enter jp alias
+enter jp alias # jump to the goal path!
 enter del alias
 enter add alias path
 enter ed alias path
