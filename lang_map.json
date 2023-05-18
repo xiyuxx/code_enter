@@ -1,0 +1,24 @@
+{
+    "alias_path": [
+        {
+            "alias": "vue",
+            "path": "D:\\Code\\Client\\vue\\vue_code"
+        },
+        {
+            "alias": "rust",
+            "path": "D:\\Code\\Rust"
+        },
+        {
+            "alias": "nuxt",
+            "path": "D:\\Code\\Client\\Nuxt"
+        },
+        {
+            "alias": "ts",
+            "path": "D:\\Code\\Client\\TypeScript\\code"
+        },
+        {
+            "alias": "tauri",
+            "path": "D:\\Code\\Client\\tauri"
+        }
+    ]
+}
