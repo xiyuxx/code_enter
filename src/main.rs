@@ -6,4 +6,5 @@ fn main() {
     let cli = Cli::parse();
 
     handle_command(&cli.command);
+
 }

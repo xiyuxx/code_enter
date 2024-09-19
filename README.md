@@ -1,9 +1,7 @@
 <h1>INTRO</h1>
-<h2>A cmd tool writing by rust used serde and clap crate.
+A cmd tool writing by rust used serde and clap crate.
 
 It is used to quickly open some directories that are too deep</h2>
-
-<br/>
 
 <h1>ATTENTION</h1>
 <h3>
@@ -16,16 +14,10 @@ This tool needs three files:
 the .exe(/target/debug), the lang_map.json and the goal_path.txt <br/>
 Store them everywhere you like.
 <br>
-<h2>the question is there are two const variables(Line 9 and 12) in the src/file_reader.rs  needs to be fit the path you store the three files manually (Fatal problem)
-and run cargo build<h2>   
+<del>the question is there are two const variables(Line 9 and 12) in the src/file_reader.rs  needs to be fit the path you store the three files manually (Fatal problem)
+and run cargo build</del>   
+<h2>Now you can put the program everywhere you like, it'll dynamically handle the path.</h2>
 </h3>
-<br/>
-
-<h3>Anyway I just push it and fix it in the future. <br/>
-If you are Rustaceans and you can handle the problem, that's best. <br>
-If you aren't familiar with rust, there are better tools waiting for you. <br>
-And if you can help to fix this problem, I'll be grateful to you.</h3>
-<br/>
 
 <h1>USAGE</h1>
 <h3>You should create a powershell function in $PROFILE to call it like this.</h3>
