@@ -36,7 +36,19 @@ fn get_goal_path(dir:&PathBuf) -> String {
 // 读取跳转命令和路径的对应map
 pub fn get_lang_path(mut dir: PathBuf) -> Map {
     let tool_map = get_tool_map(&mut dir);
-    let alias_path = fs::read_to_string(tool_map).unwrap();
+    let alias_path = match fs::read_to_string(tool_map.clone()) {
+        Ok(content) => {content},
+        Err(_) => {
+            let alias_path = Map {
+                alias_path: vec![],
+            };
+            let json_string = serde_json::to_string_pretty(&alias_path).unwrap();
+            let mut f = File::create("lang_map.json").expect("Unable to create file");
+            f.write_all(json_string.as_bytes()).expect("Unable to write data");
+            json_string
+        }
+    };
+    // let alias_path = fs::read_to_string(tool_map).unwrap();
     serde_json::from_str(&alias_path).unwrap()
 }
 
