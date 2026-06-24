@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 // this file contains functions which will CRUD file
 
 // store the list of alias and path
@@ -21,70 +19,129 @@ pub struct Map {
     pub alias_path: Vec<Alias>,
 }
 
-fn get_tool_map(dir:&PathBuf) -> String {
-    let mut path = dir.clone();
-    path.push(TOOL_MAP);
-    path.to_string_lossy().to_string()
+fn get_tool_map(dir: &Path) -> PathBuf {
+    dir.join(TOOL_MAP)
 }
 
-fn get_goal_path(dir:&PathBuf) -> String {
-    let mut path = dir.clone();
-    path.push(GOAL_PATH);
-    path.to_string_lossy().to_string()
+fn get_goal_path(dir: &Path) -> PathBuf {
+    dir.join(GOAL_PATH)
 }
 
 // 读取跳转命令和路径的对应map
-pub fn get_lang_path(mut dir: PathBuf) -> Map {
-    let tool_map = get_tool_map(&mut dir);
-    let alias_path = match fs::read_to_string(tool_map.clone()) {
-        Ok(content) => {content},
-        Err(_) => {
-            let alias_path = Map {
-                alias_path: vec![],
-            };
-            let json_string = serde_json::to_string_pretty(&alias_path).unwrap();
-            let mut f = File::create("lang_map.json").expect("Unable to create file");
-            f.write_all(json_string.as_bytes()).expect("Unable to write data");
-            json_string
+pub fn get_lang_path(dir: &Path) -> Map {
+    let tool_map = get_tool_map(dir);
+    let alias_path = match fs::read_to_string(&tool_map) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let empty_map = Map { alias_path: vec![] };
+            let json = serde_json::to_string_pretty(&empty_map).unwrap();
+            fs::write(&tool_map, &json).expect("Unable to initialize lang_map.json");
+            json
         }
+        Err(error) => panic!("Unable to read {}: {error}", tool_map.display()),
     };
-    // let alias_path = fs::read_to_string(tool_map).unwrap();
-    serde_json::from_str(&alias_path).unwrap()
+    serde_json::from_str(&alias_path)
+        .unwrap_or_else(|error| panic!("Unable to parse {}: {error}", tool_map.display()))
 }
 
 // 更新map
 // update the map
-pub fn set_lang_map(map: Map,dir:&mut PathBuf) {
+pub fn set_lang_map(map: Map, dir: &Path) {
     let tool_map = get_tool_map(dir);
-    let mut f = File::create(tool_map).unwrap();
     let map = serde_json::to_string(&map).unwrap();
+    fs::write(&tool_map, map)
+        .unwrap_or_else(|error| panic!("Unable to write {}: {error}", tool_map.display()));
 
-    let goal_path = get_goal_path(&mut dir.clone());
-    f.write_all(map.as_bytes()).unwrap();
-    
-
-    let f2 = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(false)
-        .open(goal_path)
-        .unwrap();
-
-    let f_read = BufReader::new(&f2);
-    let mut f_write = BufWriter::new(&f2);
-    if let Some(if_jump) = f_read.lines().last() {
-        if if_jump.unwrap() == "true" {
-            f_write.write_all("\nfalse".as_bytes()).unwrap();
-        }
-    }
+    reset_jump_state(dir);
 }
 
 // 设置跳转路径
 // set the path to jump
-pub fn set_path(route: &Alias,dir:&mut PathBuf) {
+pub fn set_path(route: &Alias, dir: &Path) {
     let goal_path = get_goal_path(dir);
-    let mut f = File::create(goal_path.clone()).unwrap();
+    let content = format!("{}\ntrue", route.path);
+    fs::write(&goal_path, content)
+        .unwrap_or_else(|error| panic!("Unable to write {}: {error}", goal_path.display()));
+}
 
-    f.write_all(route.path.as_bytes()).unwrap();
-    f.write_all("\ntrue".as_bytes()).unwrap();
+fn reset_jump_state(dir: &Path) {
+    let goal_path = get_goal_path(dir);
+    let current_path = fs::read_to_string(&goal_path)
+        .ok()
+        .and_then(|content| content.lines().next().map(str::to_owned))
+        .unwrap_or_default();
+    let content = format!("{current_path}\nfalse");
+    fs::write(&goal_path, content)
+        .unwrap_or_else(|error| panic!("Unable to write {}: {error}", goal_path.display()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_dir(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "code_enter_{name}_{}_{}",
+            std::process::id(),
+            unique
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn initializes_map_in_the_requested_directory() {
+        let dir = test_dir("initialize_map");
+
+        let map = get_lang_path(&dir);
+
+        assert!(map.alias_path.is_empty());
+        assert!(dir.join(TOOL_MAP).is_file());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn updating_map_initializes_and_resets_jump_state() {
+        let dir = test_dir("reset_jump");
+        let map = Map {
+            alias_path: vec![Alias {
+                alias: "rust".into(),
+                path: r"C:\Code\Rust".into(),
+            }],
+        };
+
+        set_lang_map(map, &dir);
+        assert_eq!(fs::read_to_string(dir.join(GOAL_PATH)).unwrap(), "\nfalse");
+
+        fs::write(dir.join(GOAL_PATH), "C:\\Code\\Rust\ntrue\ntrue").unwrap();
+        set_lang_map(Map { alias_path: vec![] }, &dir);
+        assert_eq!(
+            fs::read_to_string(dir.join(GOAL_PATH)).unwrap(),
+            "C:\\Code\\Rust\nfalse"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn setting_path_replaces_previous_jump_state() {
+        let dir = test_dir("set_path");
+        fs::write(dir.join(GOAL_PATH), "old\nfalse\nfalse").unwrap();
+        let route = Alias {
+            alias: "project".into(),
+            path: r"D:\Code\Project".into(),
+        };
+
+        set_path(&route, &dir);
+
+        assert_eq!(
+            fs::read_to_string(dir.join(GOAL_PATH)).unwrap(),
+            "D:\\Code\\Project\ntrue"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
