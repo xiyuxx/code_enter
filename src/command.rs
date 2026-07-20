@@ -38,6 +38,7 @@ pub enum Commands {
 #[derive(Clone, Debug, ValueEnum)]
 pub enum Shell {
     Powershell,
+    Cmd,
     Bash,
     Zsh,
 }

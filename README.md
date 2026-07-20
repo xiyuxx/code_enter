@@ -10,21 +10,35 @@ runs `cd` / `Set-Location` in the current shell.
 
 ## Install the shell function
 
-Build or download `code_enter.exe`, then run one of:
+Build or download the `code_enter` executable, then run the command for your
+shell.
+
+Windows PowerShell:
 
 ```powershell
 code_enter init powershell
 ```
 
-```bash
-code_enter init bash
+Windows Command Prompt:
+
+```cmd
+code_enter.exe init cmd
 ```
+
+macOS zsh:
 
 ```bash
 code_enter init zsh
 ```
 
-Restart your terminal, or reload your shell profile.
+macOS/Linux bash:
+
+```bash
+code_enter init bash
+```
+
+Restart your terminal, or reload your shell profile. For `cmd.exe`, restart the
+prompt so the updated user PATH is picked up.
 
 If your profile already contains an `enter` function, `init` will stop instead
 of overwriting it. To append the managed `code_enter` wrapper anyway:
@@ -52,7 +66,7 @@ ed <alias> <path>    Edit an alias. Missing aliases are added.
 del <alias>          Delete an alias.
 jp <alias>           Jump to an alias through the shell wrapper.
 list                 Show all aliases.
-init <shell>         Install the shell wrapper. Supports powershell, bash, zsh.
+init <shell>         Install the shell wrapper. Supports powershell, cmd, bash, zsh.
 ```
 
 ## Config File

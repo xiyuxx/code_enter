@@ -26,25 +26,33 @@ enter jp rust
 
 先构建或下载 `code_enter` 可执行文件，然后根据你使用的终端运行下面其中一个命令。
 
-PowerShell：
+Windows PowerShell：
 
 ```powershell
 code_enter init powershell
 ```
 
-Bash：
+Windows 命令提示符 cmd.exe：
 
-```bash
-code_enter init bash
+```cmd
+code_enter.exe init cmd
 ```
 
-Zsh：
+macOS zsh：
 
 ```bash
 code_enter init zsh
 ```
 
-执行后重启终端，或者手动重新加载对应的 profile 文件。
+macOS/Linux bash：
+
+```bash
+code_enter init bash
+```
+
+执行后重启终端，或者手动重新加载对应的 profile 文件。对于 `cmd.exe`，需要重开窗口，让新的用户 PATH 生效。
+
+`init cmd` 会在可执行文件同目录生成 `enter.bat`，并把该目录加入用户 PATH。
 
 如果你的 profile 里已经存在 `enter` 函数，`init` 会停止，避免直接覆盖你的配置。如果你确认要追加 `code_enter` 管理的 wrapper，可以使用：
 
@@ -93,7 +101,7 @@ ed <alias> <path>    修改别名。如果别名不存在，会自动添加。
 del <alias>          删除别名。
 jp <alias>           跳转到别名对应的目录，需要通过 enter 函数使用。
 list                 列出所有别名。
-init <shell>         安装 enter 函数，支持 powershell、bash、zsh。
+init <shell>         安装 enter 包装逻辑，支持 powershell、cmd、bash、zsh。
 ```
 
 ## 配置文件

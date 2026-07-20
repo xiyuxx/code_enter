@@ -94,6 +94,7 @@ fn init(shell: &Shell, force: bool) -> Result<(), String> {
 
     match shell {
         Shell::Powershell => init_powershell(&exe_path, force),
+        Shell::Cmd => init_cmd(&exe_path, force),
         Shell::Bash => init_posix_shell(&exe_path, &bash_profile_path()?, force),
         Shell::Zsh => init_posix_shell(&exe_path, &zsh_profile_path()?, force),
     }
@@ -115,6 +116,44 @@ fn init_posix_shell(exe_path: &Path, profile_path: &Path, force: bool) -> Result
     let block = posix_wrapper(exe_path);
     write_managed_block(profile_path, &block, force)?;
     println!("Updated {}", profile_path.display());
+    Ok(())
+}
+
+fn init_cmd(exe_path: &Path, force: bool) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Err("cmd init is only supported on Windows".to_string());
+    }
+
+    let exe_dir = exe_path.parent().ok_or_else(|| {
+        format!(
+            "Unable to locate parent directory of {}",
+            exe_path.display()
+        )
+    })?;
+    let wrapper_path = exe_dir.join("enter.bat");
+    let wrapper = cmd_wrapper(exe_path);
+
+    if wrapper_path.exists() {
+        let content = fs::read_to_string(&wrapper_path)
+            .map_err(|err| format!("Unable to read {}: {err}", wrapper_path.display()))?;
+        if !content.contains("CODE_ENTER_EXE") && !force {
+            return Err(format!(
+                "{} already exists. Re-run with --force to overwrite it.",
+                wrapper_path.display()
+            ));
+        }
+    }
+
+    fs::write(&wrapper_path, wrapper)
+        .map_err(|err| format!("Unable to write {}: {err}", wrapper_path.display()))?;
+    add_to_user_path(exe_dir)?;
+
+    println!("Updated {}", wrapper_path.display());
+    println!(
+        "Added {} to the user PATH if it was not already present",
+        exe_dir.display()
+    );
+    println!("Restart cmd.exe before using `enter` from a new prompt");
     Ok(())
 }
 
@@ -217,12 +256,79 @@ fn posix_wrapper(exe_path: &Path) -> String {
     )
 }
 
+fn cmd_wrapper(exe_path: &Path) -> String {
+    format!(
+        "@echo off\r\nsetlocal\r\nset \"CODE_ENTER_EXE={}\"\r\nif /I \"%~1\"==\"jp\" (\r\n    for /f \"usebackq delims=\" %%I in (`\"%CODE_ENTER_EXE%\" %*`) do (\r\n        endlocal\r\n        cd /d \"%%I\"\r\n        goto :eof\r\n    )\r\n    endlocal\r\n    exit /b 1\r\n) else (\r\n    \"%CODE_ENTER_EXE%\" %*\r\n    exit /b %ERRORLEVEL%\r\n)\r\n",
+        cmd_path(&exe_path.to_string_lossy())
+    )
+}
+
+fn add_to_user_path(dir: &Path) -> Result<(), String> {
+    let dir = dir.to_string_lossy();
+    let current_path = user_path()?;
+
+    if current_path
+        .split(';')
+        .any(|part| part.trim_matches('"').eq_ignore_ascii_case(&dir))
+    {
+        return Ok(());
+    }
+
+    let status = std::process::Command::new("setx")
+        .arg("PATH")
+        .arg(append_path_entry(&current_path, &dir))
+        .status()
+        .map_err(|err| format!("Unable to run setx: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("setx failed with status {status}"))
+    }
+}
+
+fn user_path() -> Result<String, String> {
+    let output = std::process::Command::new("reg")
+        .args(["query", r"HKCU\Environment", "/v", "Path"])
+        .output()
+        .map_err(|err| format!("Unable to query user PATH: {err}"))?;
+
+    if !output.status.success() {
+        return Ok(String::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("Path ") || trimmed.starts_with("PATH ") {
+            let mut parts = trimmed.split_whitespace();
+            parts.next();
+            parts.next();
+            return Ok(parts.collect::<Vec<_>>().join(" "));
+        }
+    }
+
+    Ok(String::new())
+}
+
+fn append_path_entry(current_path: &str, entry: &str) -> String {
+    if current_path.trim().is_empty() {
+        entry.to_string()
+    } else {
+        format!("{current_path};{entry}")
+    }
+}
+
 fn powershell_single_quote(value: &str) -> String {
     value.replace('\'', "''")
 }
 
 fn posix_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn cmd_path(value: &str) -> String {
+    value.replace('%', "%%")
 }
 
 #[cfg(test)]
@@ -288,5 +394,23 @@ mod tests {
         let content = fs::read_to_string(path).unwrap();
         assert!(content.contains("enter() {}"));
         assert!(content.contains("new"));
+    }
+
+    #[test]
+    fn cmd_wrapper_uses_bat_cd_for_jump() {
+        let wrapper = cmd_wrapper(Path::new(r"D:\Tools\code_enter.exe"));
+
+        assert!(wrapper.contains("if /I \"%~1\"==\"jp\""));
+        assert!(wrapper.contains("cd /d \"%%I\""));
+        assert!(wrapper.contains(r#"set "CODE_ENTER_EXE=D:\Tools\code_enter.exe""#));
+    }
+
+    #[test]
+    fn append_path_entry_handles_empty_and_existing_path() {
+        assert_eq!(append_path_entry("", r"D:\Tools"), r"D:\Tools");
+        assert_eq!(
+            append_path_entry(r"C:\Windows", r"D:\Tools"),
+            r"C:\Windows;D:\Tools"
+        );
     }
 }
