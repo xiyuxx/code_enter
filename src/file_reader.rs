@@ -1,78 +1,132 @@
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-// this file contains functions which will CRUD file
 
-// store the list of alias and path
-const TOOL_MAP: &str = "lang_map.json";
+const CONFIG_DIR_NAME: &str = "code_enter";
+const CONFIG_FILE_NAME: &str = "config.json";
 
-// use by the shell to check if and where will jump
-const GOAL_PATH: &str = "goal_path.txt";
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Alias {
     pub alias: String,
     pub path: String,
 }
-#[derive(Serialize, Deserialize, Debug)]
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 pub struct Map {
     pub alias_path: Vec<Alias>,
 }
 
-fn get_tool_map(dir: &Path) -> PathBuf {
-    dir.join(TOOL_MAP)
+pub fn config_file_path() -> Result<PathBuf, String> {
+    if let Ok(dir) = env::var("CODE_ENTER_CONFIG_DIR") {
+        return Ok(PathBuf::from(dir).join(CONFIG_FILE_NAME));
+    }
+
+    let base_dir = platform_config_base_dir()?;
+    Ok(base_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME))
 }
 
-fn get_goal_path(dir: &Path) -> PathBuf {
-    dir.join(GOAL_PATH)
-}
-
-// 读取跳转命令和路径的对应map
-pub fn get_lang_path(dir: &Path) -> Map {
-    let tool_map = get_tool_map(dir);
-    let alias_path = match fs::read_to_string(&tool_map) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let empty_map = Map { alias_path: vec![] };
-            let json = serde_json::to_string_pretty(&empty_map).unwrap();
-            fs::write(&tool_map, &json).expect("Unable to initialize lang_map.json");
-            json
+fn platform_config_base_dir() -> Result<PathBuf, String> {
+    if cfg!(windows) {
+        if let Ok(appdata) = env::var("APPDATA") {
+            return Ok(PathBuf::from(appdata));
         }
-        Err(error) => panic!("Unable to read {}: {error}", tool_map.display()),
-    };
-    serde_json::from_str(&alias_path)
-        .unwrap_or_else(|error| panic!("Unable to parse {}: {error}", tool_map.display()))
+
+        if let Ok(user_profile) = env::var("USERPROFILE") {
+            return Ok(PathBuf::from(user_profile).join("AppData").join("Roaming"));
+        }
+    }
+
+    if cfg!(target_os = "macos") {
+        if let Ok(home) = env::var("HOME") {
+            return Ok(PathBuf::from(home)
+                .join("Library")
+                .join("Application Support"));
+        }
+    }
+
+    if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
+        return Ok(PathBuf::from(xdg_config_home));
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        return Ok(PathBuf::from(home).join(".config"));
+    }
+
+    Err("Unable to locate a user config directory".to_string())
 }
 
-// 更新map
-// update the map
-pub fn set_lang_map(map: Map, dir: &Path) {
-    let tool_map = get_tool_map(dir);
-    let map = serde_json::to_string(&map).unwrap();
-    fs::write(&tool_map, map)
-        .unwrap_or_else(|error| panic!("Unable to write {}: {error}", tool_map.display()));
-
-    reset_jump_state(dir);
+pub fn load_map() -> Result<Map, String> {
+    load_map_from(&config_file_path()?)
 }
 
-// 设置跳转路径
-// set the path to jump
-pub fn set_path(route: &Alias, dir: &Path) {
-    let goal_path = get_goal_path(dir);
-    let content = format!("{}\ntrue", route.path);
-    fs::write(&goal_path, content)
-        .unwrap_or_else(|error| panic!("Unable to write {}: {error}", goal_path.display()));
+pub fn save_map(map: &Map) -> Result<(), String> {
+    save_map_to(&config_file_path()?, map)
 }
 
-fn reset_jump_state(dir: &Path) {
-    let goal_path = get_goal_path(dir);
-    let current_path = fs::read_to_string(&goal_path)
-        .ok()
-        .and_then(|content| content.lines().next().map(str::to_owned))
-        .unwrap_or_default();
-    let content = format!("{current_path}\nfalse");
-    fs::write(&goal_path, content)
-        .unwrap_or_else(|error| panic!("Unable to write {}: {error}", goal_path.display()));
+pub fn load_map_from(path: &Path) -> Result<Map, String> {
+    if !path.exists() {
+        let map = Map::default();
+        save_map_to(path, &map)?;
+        return Ok(map);
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|err| format!("Unable to read {}: {err}", path.display()))?;
+
+    if content.trim().is_empty() {
+        return Ok(Map::default());
+    }
+
+    serde_json::from_str(&content)
+        .map_err(|err| format!("Unable to parse {}: {err}", path.display()))
+}
+
+pub fn save_map_to(path: &Path, map: &Map) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("Unable to create {}: {err}", parent.display()))?;
+    }
+
+    let content = serde_json::to_string_pretty(map)
+        .map_err(|err| format!("Unable to serialize config: {err}"))?;
+    fs::write(path, format!("{content}\n"))
+        .map_err(|err| format!("Unable to write {}: {err}", path.display()))
+}
+
+pub fn add_alias(map: &mut Map, alias: &str, path: &str) -> Result<(), String> {
+    if map.alias_path.iter().any(|route| route.alias == alias) {
+        return Err(format!("{alias} already exists. Use `ed` to update it."));
+    }
+
+    map.alias_path.push(Alias {
+        alias: alias.to_string(),
+        path: path.to_string(),
+    });
+    Ok(())
+}
+
+pub fn edit_alias(map: &mut Map, alias: &str, path: &str) -> bool {
+    if let Some(route) = map.alias_path.iter_mut().find(|route| route.alias == alias) {
+        route.path = path.to_string();
+        true
+    } else {
+        map.alias_path.push(Alias {
+            alias: alias.to_string(),
+            path: path.to_string(),
+        });
+        false
+    }
+}
+
+pub fn delete_alias(map: &mut Map, alias: &str) -> bool {
+    let old_len = map.alias_path.len();
+    map.alias_path.retain(|route| route.alias != alias);
+    map.alias_path.len() != old_len
+}
+
+pub fn find_alias<'a>(map: &'a Map, alias: &str) -> Option<&'a Alias> {
+    map.alias_path.iter().find(|route| route.alias == alias)
 }
 
 #[cfg(test)]
@@ -80,68 +134,72 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_dir(name: &str) -> PathBuf {
-        let unique = SystemTime::now()
+    fn temp_config_path(test_name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "code_enter_{name}_{}_{}",
-            std::process::id(),
-            unique
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        dir
+
+        env::temp_dir()
+            .join("code_enter_tests")
+            .join(format!("{test_name}_{}_{}", std::process::id(), nonce))
+            .join(CONFIG_FILE_NAME)
     }
 
     #[test]
-    fn initializes_map_in_the_requested_directory() {
-        let dir = test_dir("initialize_map");
+    fn load_map_creates_empty_config() {
+        let path = temp_config_path("load_map_creates_empty_config");
 
-        let map = get_lang_path(&dir);
+        let map = load_map_from(&path).unwrap();
 
-        assert!(map.alias_path.is_empty());
-        assert!(dir.join(TOOL_MAP).is_file());
-        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(map, Map::default());
+        assert!(path.exists());
     }
 
     #[test]
-    fn updating_map_initializes_and_resets_jump_state() {
-        let dir = test_dir("reset_jump");
+    fn save_and_load_map_round_trip() {
+        let path = temp_config_path("save_and_load_map_round_trip");
         let map = Map {
             alias_path: vec![Alias {
-                alias: "rust".into(),
-                path: r"C:\Code\Rust".into(),
+                alias: "rust".to_string(),
+                path: "D:\\Code\\Rust".to_string(),
             }],
         };
 
-        set_lang_map(map, &dir);
-        assert_eq!(fs::read_to_string(dir.join(GOAL_PATH)).unwrap(), "\nfalse");
+        save_map_to(&path, &map).unwrap();
 
-        fs::write(dir.join(GOAL_PATH), "C:\\Code\\Rust\ntrue\ntrue").unwrap();
-        set_lang_map(Map { alias_path: vec![] }, &dir);
-        assert_eq!(
-            fs::read_to_string(dir.join(GOAL_PATH)).unwrap(),
-            "C:\\Code\\Rust\nfalse"
-        );
-        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(load_map_from(&path).unwrap(), map);
     }
 
     #[test]
-    fn setting_path_replaces_previous_jump_state() {
-        let dir = test_dir("set_path");
-        fs::write(dir.join(GOAL_PATH), "old\nfalse\nfalse").unwrap();
-        let route = Alias {
-            alias: "project".into(),
-            path: r"D:\Code\Project".into(),
-        };
+    fn add_alias_rejects_duplicates() {
+        let mut map = Map::default();
 
-        set_path(&route, &dir);
+        add_alias(&mut map, "rust", "D:\\Code\\Rust").unwrap();
+        let result = add_alias(&mut map, "rust", "D:\\Other");
 
-        assert_eq!(
-            fs::read_to_string(dir.join(GOAL_PATH)).unwrap(),
-            "D:\\Code\\Project\ntrue"
-        );
-        fs::remove_dir_all(dir).unwrap();
+        assert!(result.is_err());
+        assert_eq!(map.alias_path.len(), 1);
+    }
+
+    #[test]
+    fn edit_alias_updates_existing_and_adds_missing() {
+        let mut map = Map::default();
+
+        assert!(!edit_alias(&mut map, "rust", "D:\\Code\\Rust"));
+        assert!(edit_alias(&mut map, "rust", "D:\\Code\\Rust2"));
+
+        assert_eq!(find_alias(&map, "rust").unwrap().path, "D:\\Code\\Rust2");
+        assert_eq!(map.alias_path.len(), 1);
+    }
+
+    #[test]
+    fn delete_alias_reports_whether_it_removed_anything() {
+        let mut map = Map::default();
+        add_alias(&mut map, "rust", "D:\\Code\\Rust").unwrap();
+
+        assert!(!delete_alias(&mut map, "missing"));
+        assert!(delete_alias(&mut map, "rust"));
+        assert!(map.alias_path.is_empty());
     }
 }

@@ -1,77 +1,72 @@
-<h1>INTRO</h1>
-A cmd tool writing by rust used serde and clap crate.
+# code_enter
 
-It is used to quickly open some directories that are too deep</h2>
+`code_enter` is a small Rust CLI for saving directory aliases and jumping to
+deep paths quickly from your shell.
 
-<h1>ATTENTION</h1>
-<h3>
-I'm new to Rust so there are some places I didn't handled well.
-<br/>
-If you are using or studying Rust, it seems not a big deal.
-<br/>
-<br/>
-This tool needs three files:
-the .exe(/target/debug), the lang_map.json and the goal_path.txt <br/>
-Store them everywhere you like.
-<br>
-<del>the question is there are two const variables(Line 9 and 12) in the src/file_reader.rs  needs to be fit the path you store the three files manually (Fatal problem)
-and run cargo build</del>   
-<h2>Now you can put the program everywhere you like, it'll dynamically handle the path.</h2>
-</h3>
+The executable cannot change the current directory of its parent shell by
+itself, so `code_enter init` installs a small shell function named `enter`.
+That function calls the executable, captures the path printed by `jp`, and then
+runs `cd` / `Set-Location` in the current shell.
 
-<h1>USAGE</h1>
-<h3>You should create a powershell function in $PROFILE to call it like this.</h3>
+## Install the shell function
 
+Build or download `code_enter.exe`, then run one of:
 
 ```powershell
-# choose the function name you like!
-function enter() {
-    # the path you store the .exe file
-    D:\Tool\enter\code_enter.exe $args
-    if($args[0] -eq "jp"){
-        $goal_path = "D:\Tool\enter\goal_path.txt"
-
-        $goal = (Get-Content -Path $goal_path)[0]
-        $ifjump = (Get-Content -Path $goal_path)[-1]
-
-        if ($ifjump) {
-            Set-Location $goal
-        }
-    }
-}
+code_enter init powershell
 ```
 
-<h3>Incidentally, Windows PowerShell does not have a configuration file by default, and you can directly follow the path and file name output by $PROFILE to create a new file. </h3>
-
-``` powershell
- >> $PROFILE
-C:\Users\UserName\Documents\PowerShell\Microsoft.PowerShell_profile.ps1
+```bash
+code_enter init bash
 ```
 
-Then you can call it in powershell as follows
+```bash
+code_enter init zsh
+```
+
+Restart your terminal, or reload your shell profile.
+
+If your profile already contains an `enter` function, `init` will stop instead
+of overwriting it. To append the managed `code_enter` wrapper anyway:
 
 ```powershell
+code_enter init powershell --force
+```
+
+## Usage
+
+```powershell
+enter add rust D:\Code\Rust
+enter add tauri D:\Code\Client\tauri
 enter list
+enter jp rust
+enter ed rust D:\Code\RustProjects
+enter del tauri
 ```
 
-Output will like this
+Commands:
 
-```powershell
-Available maps are as follows~
-vue    : D:\Code\Client\vue\vue_code
-rust   : D:\Code\Rust
-tauri  : D:\Code\Client\tauri
-cele   : D:\Games\Steam\steamapps\common\Celeste\Mods
+```text
+add <alias> <path>   Add a new alias. Duplicate aliases are rejected.
+ed <alias> <path>    Edit an alias. Missing aliases are added.
+del <alias>          Delete an alias.
+jp <alias>           Jump to an alias through the shell wrapper.
+list                 Show all aliases.
+init <shell>         Install the shell wrapper. Supports powershell, bash, zsh.
 ```
 
-It contains five subcommands, input -help to check them
-<br/>
-add and ed(means edit) require two args: alias and path
-del(means delete) and jp(jump) require one arg: alias
+## Config File
 
-```powershell
-enter jp alias # jump to the goal path!
-enter del alias
-enter add alias path
-enter ed alias path
+Aliases are stored automatically in a user config file. You do not need to
+create or move this file manually.
+
+Default locations:
+
+```text
+Windows: %APPDATA%\code_enter\config.json
+Linux:   $XDG_CONFIG_HOME/code_enter/config.json or ~/.config/code_enter/config.json
+macOS:   ~/Library/Application Support/code_enter/config.json
 ```
+
+For testing or custom setups, set `CODE_ENTER_CONFIG_DIR` to override the config
+directory.
